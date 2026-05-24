@@ -45,6 +45,17 @@ bool DaqThread::start() {
     m_ao_chunk.assign(
         m_cfg.max_scans_per_read * std::max(1, m_cfg.num_vdep_cells), 0.0);
 
+    // Pull the AO clip range from the DAQ unless the caller asked us
+    // to honor what they put in Config. Bipolar (PCIe / X-series)
+    // boards report (-10, 10); unipolar USB boards (USB-6001/6008/6009)
+    // report (0, 5). Saturating to the wrong range either wastes
+    // dynamic range or drives values the driver will reject.
+    if (m_cfg.ao_clip_from_daq && m_cfg.daq) {
+        auto r = m_cfg.daq->aoRange();
+        m_cfg.ao_clip_min = r.first;
+        m_cfg.ao_clip_max = r.second;
+    }
+
     // Start the DAQ tasks. If this throws, report and bail.
     try {
         m_cfg.daq->start();

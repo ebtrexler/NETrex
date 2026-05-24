@@ -334,6 +334,23 @@ asks for 80 nA, the limit will cap it at 5 nA before it reaches the amp.
 > faithfully clamp fast HH sodium (τ_m ~ 0.1 ms): the cell's spike is
 > over before the closed loop's correction reaches the amplifier. For
 > fast Na/K experiments, use a PCIe rig.
+>
+> **Low-cost USB cards (USB-6008 / USB-6009).** These devices have
+> two limitations worth flagging up front:
+>   - **No AO sample clock at all.** Tier 2 (continuous buffer) won't
+>     succeed; you'll always land in tier 3 (on-demand), with
+>     ~1 ms loop latency. Fine for slow conductances; not for fast Na.
+>   - **Unipolar AO (0–5 V), not bipolar (±10 V).** NETrex queries
+>     and uses the device's actual range automatically (so you no
+>     longer get an "Maximum Value 5.0" error from the driver), but
+>     this means you can only output one polarity directly. To inject
+>     both depolarizing and hyperpolarizing currents through the same
+>     channel, configure your amplifier so its external command input
+>     interprets the 2.5 V midpoint of the DAC as zero current — for
+>     example, use the amp's holding-current dial to bias the
+>     injection by an amount equal to whatever 2.5 V × AOGain
+>     produces. Then a 0–5 V DAC swing = ± (2.5 V / AOGain) of
+>     bidirectional current.
 
 Menu: **Simulate → Run Dynamic Clamp…** (or press **Ctrl+R**).
 

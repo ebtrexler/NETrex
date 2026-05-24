@@ -68,9 +68,18 @@ public:
         /// 50–200 scans; 4096 gives plenty of headroom.
         std::size_t max_scans_per_read = 4096;
 
-        /// AO clip range (Volts). NI AO cards are ±10 V.
+        /// AO clip range (Volts). The hot loop saturates each I_nA
+        /// scan against this range before writing. Defaults to ±10 V
+        /// (X-series convention); start() overrides them on entry from
+        /// the DAQ's reported aoRange() so unipolar USB boards
+        /// (0–5 V on USB-6001/6008/6009) clip correctly. Set them
+        /// explicitly in Config to override.
         double ao_clip_min = -10.0;
         double ao_clip_max =  10.0;
+        /// If true, start() will override ao_clip_min/ao_clip_max from
+        /// the DAQ's aoRange() (the usual behavior). Set false to
+        /// force the values you supplied.
+        bool ao_clip_from_daq = true;
 
         /// Optional per-chunk callback. Invoked on the DAQ thread after
         /// writeAO and after submit-to-disk, once per chunk. Must not

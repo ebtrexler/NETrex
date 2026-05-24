@@ -86,6 +86,14 @@ public:
         m_aoBufferDepthSamples = 0;
         m_aoModeDescription = to_string(m_aoMode);
 
+        // Query the device's actual AO voltage range up front. Some
+        // boards (USB-6001, USB-6008/6009) are unipolar 0–5 V; others
+        // are bipolar ±10 V. NI-DAQmx rejects DAQmxCreateAOVoltageChan
+        // with a range outside what the device supports (error -200077).
+        auto range = queryAORange(channels);
+        m_aoMin = range.first;
+        m_aoMax = range.second;
+
         // Tier 1: hardware-timed single-point. PCIe / PXI X-series.
         if (tryConfigureHWTimedSingle(channels)) {
             m_aoMode = AOMode::HwTimedSinglePoint;
@@ -150,6 +158,10 @@ public:
 
     AOMode aoMode() const override { return m_aoMode; }
 
+    std::pair<double, double> aoRange() const override {
+        return std::make_pair(m_aoMin, m_aoMax);
+    }
+
     /// True if the AO task is software-timed (each writeAO goes
     /// straight to the DAC). Convenience: equivalent to
     /// `aoMode() == AOMode::OnDemand`.
@@ -165,13 +177,54 @@ public:
     }
 
 private:
+    /// Query the device's widest supported AO voltage range. Falls
+    /// back to ±10 V if the query fails (which itself is then caught
+    /// by DAQmxCreateAOVoltageChan if the device disagrees, producing
+    /// the same error users saw before this helper existed).
+    ///
+    /// USB-6001 / USB-6008 / USB-6009 are unipolar (0–5 V); X-series
+    /// boards are bipolar (±10 V). Modern NI-DAQmx rejects a channel
+    /// created with a min/max outside the device's table.
+    std::pair<double, double> queryAORange(const std::string &channels) {
+        // Extract device name from the first channel: "Dev1/ao0,..." -> "Dev1"
+        std::string dev = channels;
+        auto comma = dev.find(',');
+        if (comma != std::string::npos) dev = dev.substr(0, comma);
+        auto slash = dev.find('/');
+        if (slash != std::string::npos) dev = dev.substr(0, slash);
+        // Trim whitespace
+        auto a = dev.find_first_not_of(" \t");
+        auto b = dev.find_last_not_of(" \t");
+        if (a != std::string::npos) dev = dev.substr(a, b - a + 1);
+
+        float64 ranges[64] = {};
+        int32 err = DAQmxGetDevAOVoltageRngs(dev.c_str(), ranges, 64);
+        if (err < 0) return {-10.0, 10.0};
+
+        // Pairs of (min, max) terminated by a 0,0 sentinel. Pick the
+        // widest span.
+        double bestMin = 0, bestMax = 0;
+        double bestSpan = 0;
+        for (int i = 0; i + 1 < 64; i += 2) {
+            if (ranges[i] == 0 && ranges[i + 1] == 0) break;
+            double span = ranges[i + 1] - ranges[i];
+            if (span > bestSpan) {
+                bestSpan = span;
+                bestMin = ranges[i];
+                bestMax = ranges[i + 1];
+            }
+        }
+        if (bestSpan == 0) return {-10.0, 10.0};
+        return {bestMin, bestMax};
+    }
+
     /// Tier 1: hardware-timed single-point AO. Each scan latched on
     /// the next sample-clock edge; sub-microsecond determinism.
     /// Returns true if the task was successfully configured.
     bool tryConfigureHWTimedSingle(const std::string &channels) {
         if (DAQmxCreateTask("AO", &m_aoTask) < 0) return false;
         if (DAQmxCreateAOVoltageChan(m_aoTask, channels.c_str(), "",
-                -10.0, 10.0, DAQmx_Val_Volts, "") < 0) {
+                m_aoMin, m_aoMax, DAQmx_Val_Volts, "") < 0) {
             DAQmxClearTask(m_aoTask); m_aoTask = 0; return false;
         }
         float64 maxRate = 0;
@@ -193,7 +246,7 @@ private:
     bool tryConfigureContSamps(const std::string &channels) {
         if (DAQmxCreateTask("AO", &m_aoTask) < 0) return false;
         if (DAQmxCreateAOVoltageChan(m_aoTask, channels.c_str(), "",
-                -10.0, 10.0, DAQmx_Val_Volts, "") < 0) {
+                m_aoMin, m_aoMax, DAQmx_Val_Volts, "") < 0) {
             DAQmxClearTask(m_aoTask); m_aoTask = 0; return false;
         }
         float64 maxRate = 0;
@@ -235,7 +288,7 @@ private:
     void configureOnDemand(const std::string &channels) {
         daqmxCheck(DAQmxCreateTask("AO", &m_aoTask));
         daqmxCheck(DAQmxCreateAOVoltageChan(m_aoTask, channels.c_str(), "",
-                   -10.0, 10.0, DAQmx_Val_Volts, ""));
+                   m_aoMin, m_aoMax, DAQmx_Val_Volts, ""));
         // No CfgSampClkTiming call — task will be on-demand.
     }
 
@@ -265,6 +318,9 @@ private:
     // setAOBufferDepthSeconds() before configureAO if needed.
     double m_aoBufferDepthSeconds = 0.050;
     uInt32 m_aoBufferDepthSamples = 0;
+    // Device's actual AO voltage range, queried in configureAO.
+    double m_aoMin = -10.0;
+    double m_aoMax =  10.0;
 };
 
 #endif // HAVE_NIDAQMX

@@ -94,6 +94,15 @@ public:
     /// HwTimedSinglePoint so test backends without a configureAO
     /// implementation don't need to override this.
     virtual AOMode aoMode() const { return AOMode::HwTimedSinglePoint; }
+
+    /// Device's actual AO voltage range, queried during configureAO.
+    /// Defaults to ±10 V (the X-series convention) so callers that
+    /// don't know about it get sensible behavior. Bipolar boards
+    /// return roughly (-10, 10); unipolar USB boards (USB-6001/6008/
+    /// 6009 etc.) return roughly (0, 5).
+    virtual std::pair<double, double> aoRange() const {
+        return std::make_pair(-10.0, 10.0);
+    }
 };
 
 #endif
