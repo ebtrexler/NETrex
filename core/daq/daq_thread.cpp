@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 
 #include "RT_Network.h"
 
@@ -41,6 +42,8 @@ bool DaqThread::start() {
     m_vm_out.assign(m_cfg.num_cells, 0.0);
     m_i_na.assign(std::max(1, m_cfg.num_vdep_cells), 0.0);
     m_zero_ao.assign(std::max(1, m_cfg.num_vdep_cells), 0.0);
+    m_ao_chunk.assign(
+        m_cfg.max_scans_per_read * std::max(1, m_cfg.num_vdep_cells), 0.0);
 
     // Start the DAQ tasks. If this throws, report and bail.
     try {
@@ -52,7 +55,7 @@ bool DaqThread::start() {
 
     // Prime the DAC with zeros so the amplifier is held at 0 nA on entry.
     try {
-        m_cfg.daq->writeAO(m_zero_ao.data(),
+        m_cfg.daq->writeAO(m_zero_ao.data(), 1,
                            std::max(1, m_cfg.num_vdep_cells));
     } catch (const std::exception&) {
         // Not fatal — some mock backends don't implement priming. The
@@ -80,7 +83,7 @@ void DaqThread::stop() {
     // Drive AO to zero on shutdown so the amplifier doesn't keep
     // injecting current after the run ends.
     try {
-        m_cfg.daq->writeAO(m_zero_ao.data(),
+        m_cfg.daq->writeAO(m_zero_ao.data(), 1,
                            std::max(1, m_cfg.num_vdep_cells));
     } catch (...) {}
 
@@ -171,8 +174,20 @@ void DaqThread::run() {
             ao_out = m_i_na.data();
         }
 
+        // Replicate the per-chunk AO command across all `scans` samples
+        // and write the whole chunk. The backend interprets this:
+        //   • HW-timed single-point: queues N samples for N clock edges
+        //   • ContSamps buffer: appends N samples to the FIFO; hardware
+        //     drains them at the AO sample rate (cont-buff USB path)
+        //   • On-demand: writes only the last sample, immediately
+        for (int32_t s = 0; s < scans; ++s) {
+            std::memcpy(&m_ao_chunk[static_cast<std::size_t>(s) * num_vdep],
+                        ao_out,
+                        num_vdep * sizeof(double));
+        }
+
         try {
-            m_cfg.daq->writeAO(ao_out, num_vdep);
+            m_cfg.daq->writeAO(m_ao_chunk.data(), scans, num_vdep);
         } catch (const std::exception& e) {
             set_error(std::string("writeAO: ") + e.what());
             m_ok.store(false);

@@ -97,10 +97,15 @@ public:
         return scans;
     }
 
-    void writeAO(const double *data, int numChannels) override {
+    void writeAO(const double *data, int numScans, int numChannels) override {
         if (!m_running || !m_electrode || numChannels < 1) return;
-        // AO voltage → current in nA (assuming AOGain = 1 V/nA)
-        m_electrode->SetAmplitude(data[0]);
+        // Mock pretends to be a perfect HW-timed device. Use the latest
+        // scan in the chunk as the new injected current — the previous
+        // scans would have been latched on previous clock edges, but
+        // since we only simulate one cell with one electrode the
+        // current observable is just "what was injected last."
+        const double *last = (numScans > 0) ? &data[(numScans - 1) * numChannels] : data;
+        m_electrode->SetAmplitude(last[0]);
     }
 
     int numAIChannels() const override { return m_numAI; }

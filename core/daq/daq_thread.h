@@ -168,6 +168,7 @@ private:
     std::vector<double> m_vm_out;         // num_cells
     std::vector<double> m_i_na;           // num_vdep_cells
     std::vector<double> m_zero_ao;        // num_vdep_cells (pre-zeroed)
+    std::vector<double> m_ao_chunk;       // max_scans_per_read * num_vdep_cells
 };
 
 #endif  // DAQ_THREAD_H

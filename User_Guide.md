@@ -317,6 +317,24 @@ asks for 80 nA, the limit will cap it at 5 nA before it reaches the amp.
 
 ## 7. Running a dynamic-clamp experiment
 
+> **A note on USB DAQ devices.** NETrex picks an AO timing mode at run
+> start, in this order:
+> 1. **HW-timed single-point** — sub-microsecond determinism, used on
+>    PCIe / PXI X-series cards.
+> 2. **Continuous-buffer** — used on most USB devices (USB-6001,
+>    USB-6008, USB-6009, USB-6210 family, etc.). Output is still
+>    hardware-clocked and jitter-free; loop latency is ~50 ms (the
+>    AO buffer depth) by default.
+> 3. **On-demand** — last-resort fallback. Each AO write goes over USB
+>    one sample at a time. Functional but jittery (~1 ms).
+>
+> Practical implication: USB rigs work for adding/subtracting
+> conductances whose time constants are slower than ~5–10 ms — slow K,
+> NMDA (τ ~ 50 ms), GABA-B, h-current, AHP currents. They cannot
+> faithfully clamp fast HH sodium (τ_m ~ 0.1 ms): the cell's spike is
+> over before the closed loop's correction reaches the amplifier. For
+> fast Na/K experiments, use a PCIe rig.
+
 Menu: **Simulate → Run Dynamic Clamp…** (or press **Ctrl+R**).
 
 The run dialog has three columns.
