@@ -95,7 +95,7 @@ public:
         // Tier 2: continuous-buffer. Most USB devices.
         if (tryConfigureContSamps(channels)) {
             m_aoMode = AOMode::ContSampsBuffer;
-            m_aoModeDescription = to_string(m_aoMode) +
+            m_aoModeDescription = std::string(to_string(m_aoMode)) +
                 " (" + std::to_string(m_aoBufferDepthSamples) + "-scan buffer)";
             return;
         }
