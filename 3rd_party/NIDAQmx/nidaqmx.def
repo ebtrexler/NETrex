@@ -20,3 +20,5 @@ EXPORTS
     DAQmxClearTask
     DAQmxReadAnalogF64
     DAQmxWriteAnalogF64
+    DAQmxCfgOutputBuffer
+    DAQmxGetTaskNumChans
