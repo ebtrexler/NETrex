@@ -84,10 +84,34 @@ public:
         daqmxCheck(DAQmxCreateAOVoltageChan(m_aoTask, channels.c_str(), "",
                    -10.0, 10.0, DAQmx_Val_Volts, ""));
 
+        // Try hardware-timed single-point AO. Each DAQmxWriteAnalogF64 is
+        // latched on the next sample-clock edge — deterministic per-scan
+        // output, ideal for dynamic clamp. PCIe / PXI X-series devices
+        // support this; most USB devices (USB-6001, USB-6008, USB-6009,
+        // USB-6210 family, etc.) do NOT and the driver returns an error.
+        // We catch that and fall back to on-demand (software-timed) AO.
+        m_aoOnDemand = false;
+        m_aoModeDescription = "hw-timed single-point";
+
         float64 maxRate = 0;
-        daqmxCheck(DAQmxGetSampClkMaxRate(m_aoTask, &maxRate));
-        daqmxCheck(DAQmxCfgSampClkTiming(m_aoTask, "", maxRate,
-                   DAQmx_Val_Rising, DAQmx_Val_HWTimedSinglePoint, 5000));
+        int32 err = DAQmxGetSampClkMaxRate(m_aoTask, &maxRate);
+        if (err >= 0) {
+            err = DAQmxCfgSampClkTiming(m_aoTask, "", maxRate,
+                  DAQmx_Val_Rising, DAQmx_Val_HWTimedSinglePoint, 5000);
+        }
+        if (err < 0) {
+            // Hardware doesn't support HW-timed single point. Tear down
+            // and recreate the task without sample-clock timing — each
+            // writeAO will then go straight to the DAC over USB. Higher
+            // latency (~1 ms per write on USB) but functionally correct.
+            DAQmxClearTask(m_aoTask);
+            m_aoTask = 0;
+            daqmxCheck(DAQmxCreateTask("AO", &m_aoTask));
+            daqmxCheck(DAQmxCreateAOVoltageChan(m_aoTask, channels.c_str(), "",
+                       -10.0, 10.0, DAQmx_Val_Volts, ""));
+            m_aoOnDemand = true;
+            m_aoModeDescription = "on-demand (USB / software-timed)";
+        }
     }
 
     void start() override {
@@ -112,12 +136,22 @@ public:
 
     void writeAO(const double *data, int numChannels) override {
         int32 written = 0;
-        daqmxCheck(DAQmxWriteAnalogF64(m_aoTask, 1, false, 10.0,
+        // On-demand tasks tolerate (and benefit from) autoStart=true:
+        // it transitions the task to running on the first write if it
+        // wasn't already, with no harmful effect on subsequent writes.
+        bool32 autoStart = m_aoOnDemand ? 1 : 0;
+        daqmxCheck(DAQmxWriteAnalogF64(m_aoTask, 1, autoStart, 10.0,
                    DAQmx_Val_GroupByScanNumber, const_cast<float64*>(data),
                    &written, NULL));
     }
 
     int numAIChannels() const override { return m_numAI; }
+
+    /// True if the AO task is software-timed (each writeAO goes
+    /// straight to the DAC). Used by RunDialog to surface the mode in
+    /// the diagnostics block.
+    bool aoIsOnDemand() const { return m_aoOnDemand; }
+    const std::string &aoModeDescription() const { return m_aoModeDescription; }
 
 private:
     static void parseChannelList(const char *text, std::vector<std::string> &out) {
@@ -135,6 +169,8 @@ private:
     double m_sampleRate = 0;
     int m_numAI = 0;
     bool m_running = false;
+    bool m_aoOnDemand = false;
+    std::string m_aoModeDescription = "hw-timed single-point";
 };
 
 #endif // HAVE_NIDAQMX
